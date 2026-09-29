@@ -1,0 +1,1840 @@
+openapi: 3.1.0
+info:
+  title: Nova Personal Workspace API
+  version: 1.0.0
+  description: >-
+    Initial same-origin Next.js Route Handler contract for the personal workspace.
+    All timestamps are RFC 3339 UTC instants; date-only values are ISO 8601 calendar
+    dates. Authenticated user identity is derived exclusively from the server session;
+    clients never submit userId, and every read/write of user-owned records is scoped
+    to that identity. An ID owned by another user is returned as 404 to avoid leaking
+    its existence. Collection responses use {data, pagination}; cursor is opaque,
+    limit defaults to 20 and is capped at 100. Time windows use inclusive from and
+    exclusive to instants/dates unless an endpoint explicitly says otherwise. Errors
+    use application/problem+json with status, title, code, optional detail/errors, and
+    requestId.
+servers:
+  - url: /api/v1
+    description: Same-origin relative API base; clients may prepend NEXT_PUBLIC_API_BASE_URL.
+tags:
+  - name: Dashboard
+    description: Aggregated overview for the authenticated user's local day.
+  - name: Analytics
+    description: Date-range activity metrics derived from personal workspace records.
+  - name: Inbox
+    description: Captured items awaiting processing.
+  - name: Tasks
+    description: Actionable work items and their lifecycle.
+  - name: Projects
+    description: User-owned project containers for tasks.
+  - name: Calendar
+    description: Time-bounded events with timezone-aware instants.
+  - name: Notes
+    description: Markdown or plain-text knowledge documents.
+  - name: Files
+    description: File metadata associated with external binary storage.
+  - name: Learning
+    description: CET vocabulary decks and spaced-repetition reviews.
+  - name: Focus
+    description: Pomodoro and focus-session lifecycle.
+  - name: Habits
+    description: Habit definitions and local-date completion entries.
+  - name: Goals
+    description: Personal goals and progress.
+  - name: Notifications
+    description: User-scoped notification inbox.
+  - name: Search
+    description: Ranked search across personal workspace resources.
+  - name: Settings
+    description: Authenticated user's preferences.
+security:
+  - SessionCookie: []
+paths:
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboard
+      summary: Get a date- and timezone-aware dashboard aggregate
+      parameters:
+        - name: date
+          in: query
+          description: Local dashboard date; defaults to today in timezone.
+          schema: {$ref: '#/components/schemas/DateOnly'}
+        - name: timezone
+          in: query
+          required: true
+          description: IANA timezone used to group dates and calculate today's boundaries.
+          schema: {type: string, example: Asia/Shanghai}
+      responses:
+        '200':
+          description: Dashboard aggregate, with each collection scoped to the requested local day where applicable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/Dashboard'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /inbox-items:
+    get:
+      tags: [Inbox]
+      operationId: listInboxItems
+      summary: List captured inbox items
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: status
+          in: query
+          schema: {type: string, enum: [open, processed, archived]}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 200}
+      responses:
+        '200': {$ref: '#/components/responses/InboxItemList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Inbox]
+      operationId: createInboxItem
+      summary: Capture an inbox item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InboxItemInput'}
+      responses:
+        '201': {$ref: '#/components/responses/InboxItemCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /inbox-items/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Inbox]
+      operationId: getInboxItem
+      summary: Get an inbox item
+      responses:
+        '200': {$ref: '#/components/responses/InboxItemSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Inbox]
+      operationId: updateInboxItem
+      summary: Update or process an inbox item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InboxItemPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/InboxItemSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Inbox]
+      operationId: deleteInboxItem
+      summary: Delete an inbox item
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List tasks
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: status
+          in: query
+          schema: {type: string, enum: [todo, in_progress, done, cancelled]}
+        - name: projectId
+          in: query
+          schema: {$ref: '#/components/schemas/Uuid'}
+        - name: dueFrom
+          in: query
+          description: Inclusive UTC instant.
+          schema: {$ref: '#/components/schemas/DateTime'}
+        - name: dueTo
+          in: query
+          description: Exclusive UTC instant.
+          schema: {$ref: '#/components/schemas/DateTime'}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 200}
+      responses:
+        '200': {$ref: '#/components/responses/TaskList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TaskInput'}
+      responses:
+        '201': {$ref: '#/components/responses/TaskCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /tasks/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Get a task
+      responses:
+        '200': {$ref: '#/components/responses/TaskSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Tasks]
+      operationId: updateTask
+      summary: Update a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TaskPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/TaskSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+    delete:
+      tags: [Tasks]
+      operationId: deleteTask
+      summary: Delete a task
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: status
+          in: query
+          schema: {type: string, enum: [active, on_hold, completed, archived]}
+      responses:
+        '200': {$ref: '#/components/responses/ProjectList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProjectInput'}
+      responses:
+        '201': {$ref: '#/components/responses/ProjectCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /projects/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get a project
+      responses:
+        '200': {$ref: '#/components/responses/ProjectSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Update a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProjectPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/ProjectSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Projects]
+      operationId: deleteProject
+      summary: Delete a project; related tasks remain with projectId cleared.
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /calendar/events:
+    get:
+      tags: [Calendar]
+      operationId: listCalendarEvents
+      summary: List events in a UTC time window
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: from
+          in: query
+          required: true
+          description: Inclusive RFC 3339 instant.
+          schema: {$ref: '#/components/schemas/DateTime'}
+        - name: to
+          in: query
+          required: true
+          description: Exclusive RFC 3339 instant; must be later than from.
+          schema: {$ref: '#/components/schemas/DateTime'}
+      responses:
+        '200': {$ref: '#/components/responses/CalendarEventList'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Calendar]
+      operationId: createCalendarEvent
+      summary: Create a calendar event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CalendarEventInput'}
+      responses:
+        '201': {$ref: '#/components/responses/CalendarEventCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /calendar/events/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Calendar]
+      operationId: getCalendarEvent
+      summary: Get an event
+      responses:
+        '200': {$ref: '#/components/responses/CalendarEventSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Calendar]
+      operationId: updateCalendarEvent
+      summary: Update an event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CalendarEventPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/CalendarEventSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Calendar]
+      operationId: deleteCalendarEvent
+      summary: Delete an event
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /notes:
+    get:
+      tags: [Notes]
+      operationId: listNotes
+      summary: List notes and knowledge documents
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 200}
+        - name: pinned
+          in: query
+          schema: {type: boolean}
+      responses:
+        '200': {$ref: '#/components/responses/NoteList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Notes]
+      operationId: createNote
+      summary: Create a note or knowledge document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NoteInput'}
+      responses:
+        '201': {$ref: '#/components/responses/NoteCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /notes/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Notes]
+      operationId: getNote
+      summary: Get a note
+      responses:
+        '200': {$ref: '#/components/responses/NoteSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Notes]
+      operationId: updateNote
+      summary: Update a note
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotePatch'}
+      responses:
+        '200': {$ref: '#/components/responses/NoteSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Notes]
+      operationId: deleteNote
+      summary: Delete a note
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /files:
+    get:
+      tags: [Files]
+      operationId: listFiles
+      summary: List the user's file metadata
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 200}
+      responses:
+        '200': {$ref: '#/components/responses/FileList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Files]
+      operationId: createFileMetadata
+      summary: Register uploaded file metadata (binary transfer/storage is provider-specific)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FileInput'}
+      responses:
+        '201': {$ref: '#/components/responses/FileCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /files/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Files]
+      operationId: getFile
+      summary: Get file metadata
+      responses:
+        '200': {$ref: '#/components/responses/FileSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Files]
+      operationId: updateFile
+      summary: Update file display metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FilePatch'}
+      responses:
+        '200': {$ref: '#/components/responses/FileSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Files]
+      operationId: deleteFile
+      summary: Delete file metadata; binary-object deletion is an implementation responsibility
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /learning/decks:
+    get:
+      tags: [Learning]
+      operationId: listLearningDecks
+      summary: List available CET vocabulary decks and user progress summaries
+      parameters:
+        - name: exam
+          in: query
+          schema: {type: string, enum: [CET4, CET6]}
+      responses:
+        '200':
+          description: Available decks and aggregate progress.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/LearningDeck'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /learning/queue:
+    get:
+      tags: [Learning]
+      operationId: getReviewQueue
+      summary: Get due vocabulary items for spaced repetition
+      parameters:
+        - name: deckId
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/Uuid'}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+        - name: mode
+          in: query
+          description: Queue mode; due selects due items, new selects unseen words, mixed prioritizes due then new.
+          schema: {type: string, enum: [due, new, mixed], default: due}
+      responses:
+        '200':
+          description: Queue is deterministic for the returned snapshot; user progress is not changed by fetching.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [deckId, items, dueCount, newCount]
+                    properties:
+                      deckId: {$ref: '#/components/schemas/Uuid'}
+                      items:
+                        type: array
+                        items: {$ref: '#/components/schemas/ReviewQueueItem'}
+                      dueCount: {type: integer, minimum: 0}
+                      newCount: {type: integer, minimum: 0}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /learning/reviews:
+    post:
+      tags: [Learning]
+      operationId: submitReviewAnswer
+      summary: Submit an answer and update spaced-repetition progress atomically
+      description: clientAttemptId is an idempotency key unique per user; replay returns the original result and does not advance scheduling twice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviewSubmission'}
+      responses:
+        '200':
+          description: Exact replay of an already-accepted clientAttemptId; original result returned without another progress update.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/ReviewResult'}
+        '201':
+          description: Answer evaluated and progress updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/ReviewResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Idempotency key reused with a different payload.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /pomodoro/sessions:
+    get:
+      tags: [Focus]
+      operationId: listFocusSessions
+      summary: List focus sessions
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: from
+          in: query
+          schema: {$ref: '#/components/schemas/DateTime'}
+        - name: to
+          in: query
+          schema: {$ref: '#/components/schemas/DateTime'}
+        - name: status
+          in: query
+          schema: {type: string, enum: [running, completed, cancelled, interrupted]}
+      responses:
+        '200': {$ref: '#/components/responses/FocusSessionList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Focus]
+      operationId: startFocusSession
+      summary: Start one active Pomodoro/focus session
+      description: At most one running session per user. The server timestamps startedAt; targetSeconds defaults from preference or 1500.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FocusSessionInput'}
+      responses:
+        '201': {$ref: '#/components/responses/FocusSessionCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: User already has a running focus session.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+  /pomodoro/sessions/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Focus]
+      operationId: getFocusSession
+      summary: Get a focus session
+      responses:
+        '200': {$ref: '#/components/responses/FocusSessionSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Focus]
+      operationId: updateFocusSession
+      summary: Update session notes or link it to a task; lifecycle uses complete/cancel actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FocusSessionPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/FocusSessionSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Focus]
+      operationId: deleteFocusSession
+      summary: Delete a focus session record
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /pomodoro/sessions/{id}/complete:
+    post:
+      tags: [Focus]
+      operationId: completeFocusSession
+      summary: Complete a running focus session
+      description: Sets endedAt on the server and records actual elapsed seconds; repeated completion returns 409.
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200': {$ref: '#/components/responses/FocusSessionSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Session is not running.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+  /pomodoro/sessions/{id}/cancel:
+    post:
+      tags: [Focus]
+      operationId: cancelFocusSession
+      summary: Cancel a running focus session
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200': {$ref: '#/components/responses/FocusSessionSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Session is not running.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+  /habits:
+    get:
+      tags: [Habits]
+      operationId: listHabits
+      summary: List habits
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: archived
+          in: query
+          schema: {type: boolean, default: false}
+      responses:
+        '200': {$ref: '#/components/responses/HabitList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Habits]
+      operationId: createHabit
+      summary: Create a habit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HabitInput'}
+      responses:
+        '201': {$ref: '#/components/responses/HabitCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /habits/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Habits]
+      operationId: getHabit
+      summary: Get a habit
+      responses:
+        '200': {$ref: '#/components/responses/HabitSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Habits]
+      operationId: updateHabit
+      summary: Update a habit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HabitPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/HabitSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Habits]
+      operationId: deleteHabit
+      summary: Delete a habit and its entries
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /habits/{id}/entries:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Habits]
+      operationId: listHabitEntries
+      summary: List entries for one habit
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: from
+          in: query
+          description: Inclusive local date.
+          schema: {$ref: '#/components/schemas/DateOnly'}
+        - name: to
+          in: query
+          description: Inclusive local date.
+          schema: {$ref: '#/components/schemas/DateOnly'}
+      responses:
+        '200': {$ref: '#/components/responses/HabitEntryList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      tags: [Habits]
+      operationId: upsertHabitEntry
+      summary: Record or replace one habit completion for a local date
+      description: A unique (user, habit, date) entry is upserted, making retries safe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HabitEntryInput'}
+      responses:
+        '200': {$ref: '#/components/responses/HabitEntrySingle'}
+        '201': {$ref: '#/components/responses/HabitEntrySingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /goals:
+    get:
+      tags: [Goals]
+      operationId: listGoals
+      summary: List goals
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: status
+          in: query
+          schema: {type: string, enum: [active, completed, paused, archived]}
+      responses:
+        '200': {$ref: '#/components/responses/GoalList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [Goals]
+      operationId: createGoal
+      summary: Create a goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GoalInput'}
+      responses:
+        '201': {$ref: '#/components/responses/GoalCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /goals/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Goals]
+      operationId: getGoal
+      summary: Get a goal
+      responses:
+        '200': {$ref: '#/components/responses/GoalSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Goals]
+      operationId: updateGoal
+      summary: Update a goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GoalPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/GoalSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Goals]
+      operationId: deleteGoal
+      summary: Delete a goal
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: List notifications
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - name: unread
+          in: query
+          schema: {type: boolean}
+      responses:
+        '200': {$ref: '#/components/responses/NotificationList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /notifications/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    patch:
+      tags: [Notifications]
+      operationId: updateNotification
+      summary: Mark a notification read or unread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/NotificationSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Notifications]
+      operationId: deleteNotification
+      summary: Delete a notification
+      responses:
+        '204': {description: Deleted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      operationId: markAllNotificationsRead
+      summary: Mark all the current user's notifications as read
+      responses:
+        '200':
+          description: Number of notifications changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [updatedCount]
+                    properties:
+                      updatedCount: {type: integer, minimum: 0}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /search:
+    get:
+      tags: [Search]
+      operationId: searchWorkspace
+      summary: Search across the current user's workspace
+      description: Searches inbox items, tasks, projects, calendar events, notes and file metadata; results are ranked by relevance then updatedAt. Search backend implementation may evolve without changing this response shape.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 2, maxLength: 200}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+        - name: types
+          in: query
+          description: Optional comma-separated resource types.
+          style: form
+          explode: false
+          schema: {type: array, items: {type: string, enum: [inbox, task, project, event, note, file]}}
+      responses:
+        '200':
+          description: Ranked heterogeneous matches.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/SearchResult'}
+                  pagination: {$ref: '#/components/schemas/Pagination'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /analytics/summary:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSummary
+      summary: Get daily activity totals for a date range
+      description: Aggregates the authenticated user's records only. from is inclusive and to is exclusive; date boundaries use the supplied IANA timezone. Limit the range to 366 days.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/DateOnly'}
+        - name: to
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/DateOnly'}
+        - name: timezone
+          in: query
+          required: true
+          schema: {type: string, example: Asia/Shanghai}
+      responses:
+        '200':
+          description: Daily series and totals for the requested interval.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/AnalyticsSummary'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Get current user's preferences
+      responses:
+        '200': {$ref: '#/components/responses/SettingsSingle'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Update current user's preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SettingsPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/SettingsSingle'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >-
+        Authenticated session established by the application. In production use an
+        HttpOnly, Secure, SameSite cookie and CSRF protection for state-changing requests.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Uuid'}
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from pagination.nextCursor; omit for first page.
+      schema: {type: string, maxLength: 512}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+  responses:
+    BadRequest:
+      description: Malformed request or invalid query parameter.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    ValidationError:
+      description: Request fields failed validation.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    Unauthorized:
+      description: Missing or invalid authenticated session.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    NotFound:
+      description: Resource does not exist or is not visible to the current user.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    ServerError:
+      description: Unexpected server error.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    InboxItemList:
+      description: Inbox page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/InboxItemPage'}
+    InboxItemCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/InboxItemEnvelope'}
+    InboxItemSingle:
+      description: Inbox item.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/InboxItemEnvelope'}
+    TaskList:
+      description: Task page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TaskPage'}
+    TaskCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TaskEnvelope'}
+    TaskSingle:
+      description: Task.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TaskEnvelope'}
+    ProjectList:
+      description: Project page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProjectPage'}
+    ProjectCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProjectEnvelope'}
+    ProjectSingle:
+      description: Project.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProjectEnvelope'}
+    CalendarEventList:
+      description: Event page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/CalendarEventPage'}
+    CalendarEventCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/CalendarEventEnvelope'}
+    CalendarEventSingle:
+      description: Event.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/CalendarEventEnvelope'}
+    NoteList:
+      description: Note page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NotePage'}
+    NoteCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NoteEnvelope'}
+    NoteSingle:
+      description: Note.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NoteEnvelope'}
+    FileList:
+      description: File page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FilePage'}
+    FileCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FileEnvelope'}
+    FileSingle:
+      description: File metadata.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FileEnvelope'}
+    FocusSessionList:
+      description: Focus session page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FocusSessionPage'}
+    FocusSessionCreated:
+      description: Session started.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FocusSessionEnvelope'}
+    FocusSessionSingle:
+      description: Focus session.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FocusSessionEnvelope'}
+    HabitList:
+      description: Habit page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/HabitPage'}
+    HabitCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/HabitEnvelope'}
+    HabitSingle:
+      description: Habit.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/HabitEnvelope'}
+    HabitEntryList:
+      description: Entry page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/HabitEntryPage'}
+    HabitEntrySingle:
+      description: Habit entry.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/HabitEntryEnvelope'}
+    GoalList:
+      description: Goal page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/GoalPage'}
+    GoalCreated:
+      description: Created.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/GoalEnvelope'}
+    GoalSingle:
+      description: Goal.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/GoalEnvelope'}
+    NotificationList:
+      description: Notification page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NotificationPage'}
+    NotificationSingle:
+      description: Notification.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NotificationEnvelope'}
+    SettingsSingle:
+      description: Settings.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/SettingsEnvelope'}
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    DateTime:
+      type: string
+      format: date-time
+      description: RFC 3339 timestamp. Responses are normalized to UTC with Z suffix.
+      example: '2026-09-29T09:45:00Z'
+    DateOnly:
+      type: string
+      format: date
+      description: ISO 8601 local calendar date; it is not a UTC timestamp.
+      example: '2026-09-29'
+    Pagination:
+      type: object
+      required: [nextCursor, hasMore]
+      properties:
+        nextCursor: {type: [string, 'null'], description: Opaque; null means no next page.}
+        hasMore: {type: boolean}
+    Problem:
+      type: object
+      description: RFC 9457-style problem response; extensions carry field errors and a trace identifier.
+      required: [type, title, status]
+      properties:
+        type: {type: string, format: uri-reference, example: https://api.example.com/problems/validation-error}
+        title: {type: string, example: Validation failed}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string}
+        instance: {type: string, format: uri-reference}
+        code: {type: string, example: VALIDATION_ERROR}
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: {type: string}
+              message: {type: string}
+        requestId: {type: string}
+    InboxItem:
+      type: object
+      required: [id, title, status, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        title: {type: string}
+        body: {type: [string, 'null']}
+        status: {type: string, enum: [open, processed, archived]}
+        source: {type: [string, 'null']}
+        processedAt: {$ref: '#/components/schemas/NullableDateTime'}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    InboxItemInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        body: {type: [string, 'null'], maxLength: 20000}
+        source: {type: [string, 'null'], maxLength: 100}
+    InboxItemPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        body: {type: [string, 'null'], maxLength: 20000}
+        source: {type: [string, 'null'], maxLength: 100}
+        status: {type: string, enum: [open, processed, archived]}
+    Task:
+      type: object
+      required: [id, title, status, priority, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        title: {type: string}
+        description: {type: [string, 'null']}
+        status: {type: string, enum: [todo, in_progress, done, cancelled]}
+        priority: {type: string, enum: [low, medium, high, urgent]}
+        dueAt: {$ref: '#/components/schemas/NullableDateTime'}
+        completedAt: {$ref: '#/components/schemas/NullableDateTime'}
+        projectId: {$ref: '#/components/schemas/NullableUuid'}
+        estimatedMinutes: {type: [integer, 'null'], minimum: 1}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    TaskInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        description: {type: [string, 'null'], maxLength: 20000}
+        status: {type: string, enum: [todo, in_progress, done, cancelled], default: todo}
+        priority: {type: string, enum: [low, medium, high, urgent], default: medium}
+        dueAt: {$ref: '#/components/schemas/NullableDateTime'}
+        projectId: {$ref: '#/components/schemas/NullableUuid'}
+        estimatedMinutes: {type: [integer, 'null'], minimum: 1}
+    TaskPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        description: {type: [string, 'null'], maxLength: 20000}
+        status: {type: string, enum: [todo, in_progress, done, cancelled]}
+        priority: {type: string, enum: [low, medium, high, urgent]}
+        dueAt: {$ref: '#/components/schemas/NullableDateTime'}
+        projectId: {$ref: '#/components/schemas/NullableUuid'}
+        estimatedMinutes: {type: [integer, 'null'], minimum: 1}
+    Project:
+      type: object
+      required: [id, name, status, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        name: {type: string}
+        description: {type: [string, 'null']}
+        status: {type: string, enum: [active, on_hold, completed, archived]}
+        color: {type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$'}
+        startDate: {$ref: '#/components/schemas/NullableDateOnly'}
+        targetDate: {$ref: '#/components/schemas/NullableDateOnly'}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    ProjectInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        description: {type: [string, 'null'], maxLength: 20000}
+        status: {type: string, enum: [active, on_hold, completed, archived], default: active}
+        color: {type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$'}
+        startDate: {$ref: '#/components/schemas/NullableDateOnly'}
+        targetDate: {$ref: '#/components/schemas/NullableDateOnly'}
+    ProjectPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        description: {type: [string, 'null'], maxLength: 20000}
+        status: {type: string, enum: [active, on_hold, completed, archived]}
+        color: {type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$'}
+        startDate: {$ref: '#/components/schemas/NullableDateOnly'}
+        targetDate: {$ref: '#/components/schemas/NullableDateOnly'}
+    CalendarEvent:
+      type: object
+      required: [id, title, startsAt, endsAt, allDay, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        title: {type: string}
+        description: {type: [string, 'null']}
+        startsAt: {$ref: '#/components/schemas/DateTime'}
+        endsAt: {$ref: '#/components/schemas/DateTime'}
+        allDay: {type: boolean}
+        timezone: {type: string, example: Asia/Shanghai}
+        location: {type: [string, 'null']}
+        taskId: {$ref: '#/components/schemas/NullableUuid'}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    CalendarEventInput:
+      type: object
+      additionalProperties: false
+      required: [title, startsAt, endsAt]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        description: {type: [string, 'null'], maxLength: 20000}
+        startsAt: {$ref: '#/components/schemas/DateTime'}
+        endsAt: {$ref: '#/components/schemas/DateTime'}
+        allDay: {type: boolean, default: false}
+        timezone: {type: string, maxLength: 64, default: UTC}
+        location: {type: [string, 'null'], maxLength: 500}
+        taskId: {$ref: '#/components/schemas/NullableUuid'}
+    CalendarEventPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        description: {type: [string, 'null'], maxLength: 20000}
+        startsAt: {$ref: '#/components/schemas/DateTime'}
+        endsAt: {$ref: '#/components/schemas/DateTime'}
+        allDay: {type: boolean}
+        timezone: {type: string, maxLength: 64}
+        location: {type: [string, 'null'], maxLength: 500}
+        taskId: {$ref: '#/components/schemas/NullableUuid'}
+    Note:
+      type: object
+      required: [id, title, content, pinned, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        title: {type: string}
+        content: {type: string}
+        contentFormat: {type: string, enum: [markdown, plain_text]}
+        pinned: {type: boolean}
+        tags: {type: array, items: {type: string}}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    NoteInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        content: {type: string, maxLength: 100000, default: ''}
+        contentFormat: {type: string, enum: [markdown, plain_text], default: markdown}
+        pinned: {type: boolean, default: false}
+        tags: {type: array, maxItems: 50, items: {type: string, maxLength: 50}}
+    NotePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        content: {type: string, maxLength: 100000}
+        contentFormat: {type: string, enum: [markdown, plain_text]}
+        pinned: {type: boolean}
+        tags: {type: array, maxItems: 50, items: {type: string, maxLength: 50}}
+    FileAsset:
+      type: object
+      required: [id, name, mimeType, sizeBytes, storageKey, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        name: {type: string}
+        mimeType: {type: string}
+        sizeBytes: {type: integer, minimum: 0}
+        storageKey: {type: string, description: Opaque storage reference; not a public URL.}
+        downloadUrl: {type: [string, 'null'], format: uri, description: Short-lived signed URL if available.}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    FileInput:
+      type: object
+      additionalProperties: false
+      required: [name, mimeType, sizeBytes, storageKey]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 512}
+        mimeType: {type: string, maxLength: 255}
+        sizeBytes: {type: integer, minimum: 0}
+        storageKey: {type: string, minLength: 1, maxLength: 1024}
+    FilePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 512}
+    LearningDeck:
+      type: object
+      required: [id, code, name, exam, totalWords, dueCount, learnedCount]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, example: cet4-core}
+        name: {type: string, example: CET-4 Core Vocabulary}
+        exam: {type: string, enum: [CET4, CET6]}
+        totalWords: {type: integer, minimum: 0}
+        dueCount: {type: integer, minimum: 0}
+        learnedCount: {type: integer, minimum: 0}
+    ReviewQueueItem:
+      type: object
+      required: [wordId, spelling, definition, state, dueAt]
+      properties:
+        wordId: {$ref: '#/components/schemas/Uuid'}
+        spelling: {type: string}
+        phonetic: {type: [string, 'null']}
+        definition: {type: string}
+        example: {type: [string, 'null']}
+        state: {type: string, enum: [new, learning, review]}
+        dueAt: {$ref: '#/components/schemas/NullableDateTime'}
+        reviewProgressId: {$ref: '#/components/schemas/NullableUuid'}
+    ReviewSubmission:
+      type: object
+      additionalProperties: false
+      required: [wordId, clientAttemptId, answer, responseMs]
+      properties:
+        wordId: {$ref: '#/components/schemas/Uuid'}
+        clientAttemptId: {type: string, format: uuid}
+        answer: {type: string, enum: [again, hard, good, easy]}
+        responseMs: {type: integer, minimum: 0, maximum: 3600000}
+    ReviewResult:
+      type: object
+      required: [attemptId, wordId, answer, nextDueAt, intervalDays, repetitions, reviewedAt]
+      properties:
+        attemptId: {$ref: '#/components/schemas/Uuid'}
+        wordId: {$ref: '#/components/schemas/Uuid'}
+        answer: {type: string, enum: [again, hard, good, easy]}
+        correct: {type: boolean, description: Derived by server from prompt mode/answer and answer key; client cannot set it.}
+        nextDueAt: {$ref: '#/components/schemas/NullableDateTime'}
+        intervalDays: {type: number, minimum: 0}
+        repetitions: {type: integer, minimum: 0}
+        reviewedAt: {$ref: '#/components/schemas/DateTime'}
+    FocusSession:
+      type: object
+      required: [id, status, startedAt, targetSeconds, elapsedSeconds, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        taskId: {$ref: '#/components/schemas/NullableUuid'}
+        status: {type: string, enum: [running, completed, cancelled, interrupted]}
+        startedAt: {$ref: '#/components/schemas/DateTime'}
+        endedAt: {$ref: '#/components/schemas/NullableDateTime'}
+        targetSeconds: {type: integer, minimum: 60}
+        elapsedSeconds: {type: integer, minimum: 0}
+        note: {type: [string, 'null']}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    FocusSessionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        taskId: {$ref: '#/components/schemas/NullableUuid'}
+        targetSeconds: {type: integer, minimum: 60, maximum: 86400, default: 1500}
+        note: {type: [string, 'null'], maxLength: 2000}
+    FocusSessionPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        taskId: {$ref: '#/components/schemas/NullableUuid'}
+        note: {type: [string, 'null'], maxLength: 2000}
+    Habit:
+      type: object
+      required: [id, name, frequency, targetPerWeek, archived, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        name: {type: string}
+        description: {type: [string, 'null']}
+        frequency: {type: string, enum: [daily, weekly]}
+        targetPerWeek: {type: integer, minimum: 1, maximum: 7}
+        color: {type: [string, 'null']}
+        archived: {type: boolean}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    HabitInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        description: {type: [string, 'null'], maxLength: 2000}
+        frequency: {type: string, enum: [daily, weekly], default: daily}
+        targetPerWeek: {type: integer, minimum: 1, maximum: 7, default: 7}
+        color: {type: [string, 'null'], maxLength: 32}
+    HabitPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        description: {type: [string, 'null'], maxLength: 2000}
+        frequency: {type: string, enum: [daily, weekly]}
+        targetPerWeek: {type: integer, minimum: 1, maximum: 7}
+        color: {type: [string, 'null'], maxLength: 32}
+        archived: {type: boolean}
+    HabitEntry:
+      type: object
+      required: [id, habitId, date, completed, createdAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        habitId: {$ref: '#/components/schemas/Uuid'}
+        date: {$ref: '#/components/schemas/DateOnly'}
+        completed: {type: boolean}
+        note: {type: [string, 'null']}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+    HabitEntryInput:
+      type: object
+      additionalProperties: false
+      required: [date, completed]
+      properties:
+        date: {$ref: '#/components/schemas/DateOnly'}
+        completed: {type: boolean}
+        note: {type: [string, 'null'], maxLength: 2000}
+    Goal:
+      type: object
+      required: [id, title, status, progress, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        title: {type: string}
+        description: {type: [string, 'null']}
+        status: {type: string, enum: [active, completed, paused, archived]}
+        progress: {type: number, minimum: 0, maximum: 100}
+        targetDate: {$ref: '#/components/schemas/NullableDateOnly'}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+    GoalInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        description: {type: [string, 'null'], maxLength: 10000}
+        status: {type: string, enum: [active, completed, paused, archived], default: active}
+        progress: {type: number, minimum: 0, maximum: 100, default: 0}
+        targetDate: {$ref: '#/components/schemas/NullableDateOnly'}
+    GoalPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        description: {type: [string, 'null'], maxLength: 10000}
+        status: {type: string, enum: [active, completed, paused, archived]}
+        progress: {type: number, minimum: 0, maximum: 100}
+        targetDate: {$ref: '#/components/schemas/NullableDateOnly'}
+    Notification:
+      type: object
+      required: [id, type, title, body, readAt, createdAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        type: {type: string}
+        title: {type: string}
+        body: {type: [string, 'null']}
+        resourceType: {type: [string, 'null']}
+        resourceId: {$ref: '#/components/schemas/NullableUuid'}
+        readAt: {$ref: '#/components/schemas/NullableDateTime'}
+        createdAt: {$ref: '#/components/schemas/DateTime'}
+    NotificationPatch:
+      type: object
+      additionalProperties: false
+      required: [read]
+      properties:
+        read: {type: boolean}
+    SearchResult:
+      type: object
+      required: [type, id, title, snippet, updatedAt, href]
+      properties:
+        type: {type: string, enum: [inbox, task, project, event, note, file]}
+        id: {$ref: '#/components/schemas/Uuid'}
+        title: {type: string}
+        snippet: {type: [string, 'null']}
+        updatedAt: {$ref: '#/components/schemas/DateTime'}
+        href: {type: string, description: Relative client route; not an API URL.}
+    Settings:
+      type: object
+      required: [timezone, locale, weekStartsOn, pomodoroWorkSeconds, pomodoroShortBreakSeconds, pomodoroLongBreakSeconds, dailyReviewGoal]
+      properties:
+        timezone: {type: string, example: Asia/Shanghai}
+        locale: {type: string, example: zh-CN}
+        weekStartsOn: {type: integer, minimum: 0, maximum: 6, description: '0=Sunday, 1=Monday.'}
+        pomodoroWorkSeconds: {type: integer, minimum: 60, maximum: 86400}
+        pomodoroShortBreakSeconds: {type: integer, minimum: 60, maximum: 86400}
+        pomodoroLongBreakSeconds: {type: integer, minimum: 60, maximum: 86400}
+        dailyReviewGoal: {type: integer, minimum: 0, maximum: 1000}
+    SettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        timezone: {type: string, maxLength: 64}
+        locale: {type: string, maxLength: 20}
+        weekStartsOn: {type: integer, minimum: 0, maximum: 6}
+        pomodoroWorkSeconds: {type: integer, minimum: 60, maximum: 86400}
+        pomodoroShortBreakSeconds: {type: integer, minimum: 60, maximum: 86400}
+        pomodoroLongBreakSeconds: {type: integer, minimum: 60, maximum: 86400}
+        dailyReviewGoal: {type: integer, minimum: 0, maximum: 1000}
+    AnalyticsSummary:
+      type: object
+      required: [from, to, timezone, totals, days]
+      properties:
+        from: {$ref: '#/components/schemas/DateOnly'}
+        to: {$ref: '#/components/schemas/DateOnly'}
+        timezone: {type: string}
+        totals:
+          type: object
+          required: [tasksCompleted, focusSeconds, reviewAttempts, habitCompletions]
+          properties:
+            tasksCompleted: {type: integer, minimum: 0}
+            focusSeconds: {type: integer, minimum: 0}
+            reviewAttempts: {type: integer, minimum: 0}
+            habitCompletions: {type: integer, minimum: 0}
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, tasksCompleted, focusSeconds, reviewAttempts, habitCompletions]
+            properties:
+              date: {$ref: '#/components/schemas/DateOnly'}
+              tasksCompleted: {type: integer, minimum: 0}
+              focusSeconds: {type: integer, minimum: 0}
+              reviewAttempts: {type: integer, minimum: 0}
+              habitCompletions: {type: integer, minimum: 0}
+    Dashboard:
+      type: object
+      required: [date, timezone, counts, tasksDueToday, upcomingEvents, activeProjects, habitsToday, learning, focus, goals]
+      properties:
+        date: {$ref: '#/components/schemas/DateOnly'}
+        timezone: {type: string}
+        counts:
+          type: object
+          required: [inboxOpen, tasksOpen, tasksCompletedToday, unreadNotifications]
+          properties:
+            inboxOpen: {type: integer, minimum: 0}
+            tasksOpen: {type: integer, minimum: 0}
+            tasksCompletedToday: {type: integer, minimum: 0}
+            unreadNotifications: {type: integer, minimum: 0}
+        tasksDueToday: {type: array, items: {$ref: '#/components/schemas/Task'}}
+        upcomingEvents: {type: array, items: {$ref: '#/components/schemas/CalendarEvent'}}
+        activeProjects: {type: array, items: {$ref: '#/components/schemas/Project'}}
+        habitsToday:
+          type: array
+          items:
+            type: object
+            required: [habit, completedToday]
+            properties:
+              habit: {$ref: '#/components/schemas/Habit'}
+              completedToday: {type: boolean}
+        learning:
+          type: object
+          required: [dueCount, reviewedToday, dailyGoal]
+          properties:
+            dueCount: {type: integer, minimum: 0}
+            reviewedToday: {type: integer, minimum: 0}
+            dailyGoal: {type: integer, minimum: 0}
+        focus:
+          type: object
+          required: [activeSession, completedToday, focusSecondsToday]
+          properties:
+            activeSession: {oneOf: [{$ref: '#/components/schemas/FocusSession'}, {type: 'null'}]}
+            completedToday: {type: integer, minimum: 0}
+            focusSecondsToday: {type: integer, minimum: 0}
+        goals: {type: array, items: {$ref: '#/components/schemas/Goal'}}
+    NullableDateTime:
+      type: [string, 'null']
+      format: date-time
+    NullableDateOnly:
+      type: [string, 'null']
+      format: date
+    NullableUuid:
+      type: [string, 'null']
+      format: uuid
+    InboxItemEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/InboxItem'}
+    InboxItemPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/InboxItem'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    TaskEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Task'}
+    TaskPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Task'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    ProjectEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Project'}
+    ProjectPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Project'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    CalendarEventEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/CalendarEvent'}
+    CalendarEventPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/CalendarEvent'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    NoteEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Note'}
+    NotePage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Note'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    FileEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/FileAsset'}
+    FilePage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/FileAsset'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    FocusSessionEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/FocusSession'}
+    FocusSessionPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/FocusSession'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    HabitEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Habit'}
+    HabitPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Habit'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    HabitEntryEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/HabitEntry'}
+    HabitEntryPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/HabitEntry'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    GoalEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Goal'}
+    GoalPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Goal'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    NotificationEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Notification'}
+    NotificationPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Notification'}}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    SettingsEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Settings'}

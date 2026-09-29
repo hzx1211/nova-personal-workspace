@@ -1,0 +1,395 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Configure DATABASE_URL in the deployment environment; no credential is included here.
+  url      = env("DATABASE_URL")
+}
+
+enum InboxStatus {
+  OPEN
+  PROCESSED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum NoteFormat {
+  MARKDOWN
+  PLAIN_TEXT
+}
+
+enum ExamType {
+  CET4
+  CET6
+}
+
+enum ReviewAnswer {
+  AGAIN
+  HARD
+  GOOD
+  EASY
+}
+
+enum WordProgressState {
+  NEW
+  LEARNING
+  REVIEW
+}
+
+enum FocusSessionStatus {
+  RUNNING
+  COMPLETED
+  CANCELLED
+  INTERRUPTED
+}
+
+enum HabitFrequency {
+  DAILY
+  WEEKLY
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  ARCHIVED
+}
+
+model User {
+  id             String             @id @default(uuid()) @db.Uuid
+  email          String             @unique @db.VarChar(320)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+  settings       UserSettings?
+  inboxItems     InboxItem[]
+  tasks          Task[]
+  projects       Project[]
+  calendarEvents CalendarEvent[]
+  notes          Note[]
+  files          FileAsset[]
+  wordProgress   UserWordProgress[]
+  reviewAttempts ReviewAttempt[]
+  focusSessions  FocusSession[]
+  habits         Habit[]
+  habitEntries   HabitEntry[]
+  goals          Goal[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model UserSettings {
+  id                        String   @id @default(uuid()) @db.Uuid
+  userId                    String   @unique @db.Uuid
+  timezone                  String   @default("UTC") @db.VarChar(64)
+  locale                    String   @default("en") @db.VarChar(20)
+  weekStartsOn              Int      @default(1) @db.SmallInt
+  pomodoroWorkSeconds       Int      @default(1500)
+  pomodoroShortBreakSeconds Int      @default(300)
+  pomodoroLongBreakSeconds  Int      @default(900)
+  dailyReviewGoal           Int      @default(20)
+  createdAt                 DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model InboxItem {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @db.Uuid
+  title       String      @db.VarChar(300)
+  body        String?     @db.Text
+  status      InboxStatus @default(OPEN)
+  source      String?     @db.VarChar(100)
+  processedAt DateTime?   @db.Timestamptz(3)
+  createdAt   DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(3)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt(sort: Desc)])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("inbox_items")
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @db.Uuid
+  name        String        @db.VarChar(200)
+  description String?       @db.Text
+  status      ProjectStatus @default(ACTIVE)
+  color       String?       @db.VarChar(7)
+  startDate   DateTime?     @db.Date
+  targetDate  DateTime?     @db.Date
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(3)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@index([userId, status, updatedAt(sort: Desc)])
+  @@map("projects")
+}
+
+model Task {
+  id               String          @id @default(uuid()) @db.Uuid
+  userId           String          @db.Uuid
+  projectId        String?         @db.Uuid
+  title            String          @db.VarChar(300)
+  description      String?         @db.Text
+  status           TaskStatus      @default(TODO)
+  priority         TaskPriority    @default(MEDIUM)
+  dueAt            DateTime?       @db.Timestamptz(3)
+  completedAt      DateTime?       @db.Timestamptz(3)
+  estimatedMinutes Int?
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project          Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  calendarEvents   CalendarEvent[]
+  focusSessions    FocusSession[]
+
+  @@index([userId, status, dueAt])
+  @@index([userId, projectId, status])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("tasks")
+}
+
+model CalendarEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  taskId      String?  @db.Uuid
+  title       String   @db.VarChar(300)
+  description String?  @db.Text
+  startsAt    DateTime @db.Timestamptz(3)
+  endsAt      DateTime @db.Timestamptz(3)
+  allDay      Boolean  @default(false)
+  timezone    String   @default("UTC") @db.VarChar(64)
+  location    String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startsAt])
+  @@index([userId, endsAt])
+  @@map("calendar_events")
+}
+
+model Note {
+  id            String     @id @default(uuid()) @db.Uuid
+  userId        String     @db.Uuid
+  title         String     @db.VarChar(300)
+  content       String     @default("") @db.Text
+  contentFormat NoteFormat @default(MARKDOWN)
+  pinned        Boolean    @default(false)
+  tags          String[]   @default([])
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, pinned, updatedAt(sort: Desc)])
+  @@map("notes")
+}
+
+model FileAsset {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  name       String   @db.VarChar(512)
+  mimeType   String   @db.VarChar(255)
+  sizeBytes  BigInt
+  storageKey String   @db.VarChar(1024)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storageKey])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, name])
+  @@map("file_assets")
+}
+
+// Vocabulary content is shared seed/catalog data, not user-owned data.
+model LearningDeck {
+  id        String           @id @default(uuid()) @db.Uuid
+  code      String           @unique @db.VarChar(80)
+  name      String           @db.VarChar(200)
+  exam      ExamType
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @db.Timestamptz(3)
+  words     VocabularyWord[]
+
+  @@index([exam, name])
+  @@map("learning_decks")
+}
+
+model VocabularyWord {
+  id         String             @id @default(uuid()) @db.Uuid
+  deckId     String             @db.Uuid
+  spelling   String             @db.VarChar(200)
+  phonetic   String?            @db.VarChar(300)
+  definition String             @db.Text
+  example    String?            @db.Text
+  position   Int                @default(0)
+  createdAt  DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime           @updatedAt @db.Timestamptz(3)
+  deck       LearningDeck       @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  progress   UserWordProgress[]
+  attempts   ReviewAttempt[]
+
+  @@unique([deckId, spelling])
+  @@index([deckId, position])
+  @@map("vocabulary_words")
+}
+
+model UserWordProgress {
+  id             String            @id @default(uuid()) @db.Uuid
+  userId         String            @db.Uuid
+  wordId         String            @db.Uuid
+  state          WordProgressState @default(NEW)
+  dueAt          DateTime?         @db.Timestamptz(3)
+  lastReviewedAt DateTime?         @db.Timestamptz(3)
+  intervalDays   Float             @default(0)
+  easeFactor     Float             @default(2.5)
+  repetitions    Int               @default(0)
+  lapses         Int               @default(0)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word           VocabularyWord    @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, wordId])
+  @@index([userId, dueAt])
+  @@index([userId, state, dueAt])
+  @@map("user_word_progress")
+}
+
+model ReviewAttempt {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @db.Uuid
+  wordId          String         @db.Uuid
+  clientAttemptId String         @db.VarChar(36)
+  answer          ReviewAnswer
+  correct         Boolean
+  responseMs      Int
+  intervalDays    Float
+  repetitions     Int
+  reviewedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word            VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientAttemptId])
+  @@index([userId, reviewedAt(sort: Desc)])
+  @@index([userId, wordId, reviewedAt(sort: Desc)])
+  @@map("review_attempts")
+}
+
+model FocusSession {
+  id             String             @id @default(uuid()) @db.Uuid
+  userId         String             @db.Uuid
+  taskId         String?            @db.Uuid
+  status         FocusSessionStatus @default(RUNNING)
+  startedAt      DateTime           @default(now()) @db.Timestamptz(3)
+  endedAt        DateTime?          @db.Timestamptz(3)
+  targetSeconds  Int                @default(1500)
+  elapsedSeconds Int                @default(0)
+  note           String?            @db.VarChar(2000)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task           Task?              @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, startedAt(sort: Desc)])
+  @@index([userId, startedAt(sort: Desc)])
+  @@map("focus_sessions")
+}
+
+model Habit {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @db.Uuid
+  name          String         @db.VarChar(200)
+  description   String?        @db.VarChar(2000)
+  frequency     HabitFrequency @default(DAILY)
+  targetPerWeek Int            @default(7) @db.SmallInt
+  color         String?        @db.VarChar(32)
+  archived      Boolean        @default(false)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries       HabitEntry[]
+
+  @@index([userId, archived, updatedAt(sort: Desc)])
+  @@map("habits")
+}
+
+model HabitEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  habitId   String   @db.Uuid
+  date      DateTime @db.Date
+  completed Boolean  @default(false)
+  note      String?  @db.VarChar(2000)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, habitId, date])
+  @@index([userId, date])
+  @@index([habitId, date])
+  @@map("habit_entries")
+}
+
+model Goal {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  title       String     @db.VarChar(300)
+  description String?    @db.Text
+  status      GoalStatus @default(ACTIVE)
+  progress    Decimal    @default(0) @db.Decimal(5, 2)
+  targetDate  DateTime?  @db.Date
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, targetDate])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("goals")
+}
+
+model Notification {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  type         String    @db.VarChar(80)
+  title        String    @db.VarChar(300)
+  body         String?   @db.Text
+  resourceType String?   @db.VarChar(80)
+  resourceId   String?   @db.Uuid
+  readAt       DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@map("notifications")
+}

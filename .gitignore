@@ -1,0 +1,30 @@
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# Environment and local runtime secrets
+.env*
+!.env.example
+.dev.vars*
+.wrangler/
+.vercel/
+
+# Credentials, private keys, and local auth configuration
+credentials*
+*-credentials*
+secrets*
+*.secret
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+.npmrc
+
+# Logs and operating-system metadata
+*.log
+.DS_Store
