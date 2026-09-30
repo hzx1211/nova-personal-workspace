@@ -39,7 +39,7 @@ declare global {
  * typechecks even before the required Prisma runtime dependency is installed. */
 export async function getPrisma(): Promise<PrismaLike> {
   if (!process.env.DATABASE_URL) {
-    throw new ApiError(503, "DATABASE_UNAVAILABLE", "DATABASE_URL is not configured.");
+    throw new ApiError(503, "DATABASE_UNAVAILABLE", "The requested service is temporarily unavailable.");
   }
 
   if (!globalThis.__novaPrisma) {
@@ -51,7 +51,7 @@ export async function getPrisma(): Promise<PrismaLike> {
         if (!clientConstructor) throw new Error("PrismaClient export is unavailable");
         return new clientConstructor() as PrismaLike;
       } catch {
-        throw new ApiError(503, "DATABASE_UNAVAILABLE", "Prisma Client is unavailable; install and generate the configured Prisma Client before serving database requests.");
+        throw new ApiError(503, "DATABASE_UNAVAILABLE", "The requested service is temporarily unavailable.");
       }
     })();
   }

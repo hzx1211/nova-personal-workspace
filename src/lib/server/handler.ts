@@ -9,7 +9,7 @@ export function withApi(operation: ApiOperation) {
   return async function route(request: Request): Promise<Response> {
     try {
       if (!process.env.DATABASE_URL) {
-        throw new ApiError(503, "DATABASE_UNAVAILABLE", "DATABASE_URL is not configured.");
+        throw new ApiError(503, "DATABASE_UNAVAILABLE", "The requested service is temporarily unavailable.");
       }
       const userId = await requireUserId(request);
       const prisma = await getPrisma();
